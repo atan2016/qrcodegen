@@ -16,14 +16,16 @@ const {
   getQRCodesByUserId,
   updateQRCode
 } = require('./lib/storage');
+const { createSessionStore } = require('./lib/sessionStore');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
 
 // Session configuration
-// Note: For production on Vercel, consider using a database-backed session store
-// For now, using memory store (works but sessions won't persist across serverless invocations)
-app.use(session({
+// Use PostgreSQL session store if DATABASE_URL is available, otherwise fallback to memory store
+const sessionStore = createSessionStore();
+
+const sessionConfig = {
   secret: process.env.SESSION_SECRET || 'qr-code-generator-secret-key-change-in-production',
   resave: false,
   saveUninitialized: false,
@@ -32,7 +34,14 @@ app.use(session({
     httpOnly: true,
     maxAge: 24 * 60 * 60 * 1000 // 24 hours
   }
-}));
+};
+
+// Use PostgreSQL store if available, otherwise use default (memory store)
+if (sessionStore) {
+  sessionConfig.store = sessionStore;
+}
+
+app.use(session(sessionConfig));
 
 // Initialize Passport
 app.use(passport.initialize());

@@ -21,6 +21,13 @@ This guide will help you set up Supabase for the QR Code Generator application.
    - **Project URL** (this is your `SUPABASE_URL`)
    - **anon/public key** (this is your `SUPABASE_ANON_KEY`)
 
+3. **For Session Storage (Recommended for Production):**
+   - Go to **Settings** → **Database**
+   - Under **Connection string**, select **URI**
+   - Copy the connection string (it looks like: `postgresql://postgres:[YOUR-PASSWORD]@db.xxxxx.supabase.co:5432/postgres`)
+   - This is your `DATABASE_URL` (or `SUPABASE_DB_URL`)
+   - **Note:** Replace `[YOUR-PASSWORD]` with your actual database password
+
 ## Step 3: Create Database Tables
 
 Go to **SQL Editor** in your Supabase dashboard and run the following SQL:
@@ -115,7 +122,10 @@ Add to your `.env` file:
 ```env
 SUPABASE_URL=https://your-project-id.supabase.co
 SUPABASE_ANON_KEY=your-anon-key-here
+DATABASE_URL=postgresql://postgres:your-password@db.xxxxx.supabase.co:5432/postgres
 ```
+
+**Note:** The `DATABASE_URL` is optional but recommended for production. It enables PostgreSQL-backed session storage instead of memory store.
 
 ### For Vercel Deployment
 
