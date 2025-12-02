@@ -1,4 +1,7 @@
-require('dotenv').config();
+// Only load dotenv in local development (Vercel injects env vars automatically)
+if (process.env.VERCEL !== '1') {
+  require('dotenv').config();
+}
 const express = require('express');
 const session = require('express-session');
 const passport = require('./config/passport');
