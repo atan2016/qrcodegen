@@ -16,6 +16,18 @@
       "dest": "server.js"
     },
     {
+      "src": "/styles.css",
+      "dest": "server.js"
+    },
+    {
+      "src": "/app.js",
+      "dest": "server.js"
+    },
+    {
+      "src": "/login.html",
+      "dest": "server.js"
+    },
+    {
       "src": "/(.*\\.(html|css|js|png|jpg|jpeg|gif|svg|ico))",
       "dest": "/public/$1"
     },
