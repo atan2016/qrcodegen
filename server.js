@@ -96,18 +96,43 @@ app.get('/api/auth/me', (req, res) => {
   }
 });
 
+// Serve static files explicitly (needed for Vercel serverless)
+app.get('/styles.css', (req, res) => {
+  res.sendFile(path.join(__dirname, 'public', 'styles.css'), {
+    headers: {
+      'Content-Type': 'text/css'
+    }
+  });
+});
+
+app.get('/app.js', (req, res) => {
+  res.sendFile(path.join(__dirname, 'public', 'app.js'), {
+    headers: {
+      'Content-Type': 'application/javascript'
+    }
+  });
+});
+
 // Serve index.html for root path
 app.get('/', (req, res) => {
-  res.sendFile(path.join(__dirname, 'public', 'index.html'));
+  res.sendFile(path.join(__dirname, 'public', 'index.html'), {
+    headers: {
+      'Content-Type': 'text/html'
+    }
+  });
 });
 
 // Serve login.html
 app.get('/login.html', (req, res) => {
-  res.sendFile(path.join(__dirname, 'public', 'login.html'));
+  res.sendFile(path.join(__dirname, 'public', 'login.html'), {
+    headers: {
+      'Content-Type': 'text/html'
+    }
+  });
 });
 
-// Static file serving (after routes)
-app.use(express.static('public'));
+// Static file serving (after routes) - fallback for other static files
+app.use(express.static(path.join(__dirname, 'public')));
 
 // Helper function to check if QR code is expired
 function isExpired(qrcode) {
