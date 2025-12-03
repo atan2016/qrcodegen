@@ -73,8 +73,14 @@ app.get('/auth/google',
 app.get('/auth/google/callback',
   passport.authenticate('google', { failureRedirect: '/login.html?error=auth_failed' }),
   function(req, res) {
-    // Successful authentication, redirect to home
-    res.redirect('/');
+    // Save session before redirecting (important for serverless)
+    req.session.save((err) => {
+      if (err) {
+        console.error('Error saving session:', err);
+      }
+      // Successful authentication, redirect to home
+      res.redirect('/');
+    });
   }
 );
 
