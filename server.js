@@ -37,7 +37,14 @@ try {
 }
 
 // Determine if we should use secure cookies
+// On Vercel, always use secure cookies (HTTPS is required)
 const isSecure = process.env.VERCEL === '1' || process.env.NODE_ENV === 'production';
+
+// Validate SESSION_SECRET
+if (!process.env.SESSION_SECRET && (process.env.VERCEL === '1' || process.env.NODE_ENV === 'production')) {
+  console.error('❌ CRITICAL: SESSION_SECRET not set in production!');
+  console.error('❌ Sessions will not work properly. Set SESSION_SECRET in Vercel environment variables.');
+}
 
 const sessionConfig = {
   secret: process.env.SESSION_SECRET || 'qr-code-generator-secret-key-change-in-production',
@@ -47,12 +54,14 @@ const sessionConfig = {
   name: 'connect.sid', // Default session cookie name
   cookie: {
     secure: isSecure, // HTTPS only on Vercel or production
-    httpOnly: true,
+    httpOnly: true, // Prevent XSS attacks
     maxAge: 24 * 60 * 60 * 1000, // 24 hours
-    sameSite: 'lax', // Help with cross-site requests
+    sameSite: 'lax', // 'lax' works for same-site requests (Vercel uses same domain)
     path: '/', // Ensure cookie is available for all paths
-    // Don't set domain - let browser use default
-  }
+    // Don't set domain - let browser use default (important for Vercel)
+  },
+  // Ensure session is saved even if request is interrupted
+  proxy: true, // Trust proxy (Vercel uses proxies)
 };
 
 // Use PostgreSQL store if available, otherwise use default (memory store)
@@ -91,7 +100,7 @@ app.get('/auth/google/callback',
     failureRedirect: '/login.html?error=auth_failed',
     session: true
   }),
-  function(req, res) {
+  async function(req, res) {
     try {
       // Passport already logged the user in and added to session
       // Verify user is in session
@@ -103,19 +112,59 @@ app.get('/auth/google/callback',
       console.log('✅ User authenticated:', req.user.email);
       console.log('✅ Session ID:', req.sessionID);
       console.log('✅ Is authenticated:', req.isAuthenticated());
+      console.log('✅ Session store:', sessionStore ? 'PostgreSQL' : 'Memory');
       
-      // Explicitly save the session before redirecting (critical for serverless)
-      req.session.save((err) => {
-        if (err) {
-          console.error('❌ Error saving session:', err);
-          console.error('❌ Session error details:', JSON.stringify(err, null, 2));
-          return res.redirect('/login.html?error=auth_failed');
-        }
-        
-        console.log('✅ Session saved successfully');
-        // Successful authentication, redirect to home
-        res.redirect('/');
+      // Mark session as modified to ensure it's saved
+      req.session.userId = req.user.id;
+      req.session.userEmail = req.user.email;
+      
+      // Explicitly save the session and wait for it to complete
+      // This is critical for Vercel serverless where the function might exit before cookie is set
+      await new Promise((resolve, reject) => {
+        req.session.save((err) => {
+          if (err) {
+            console.error('❌ Error saving session:', err);
+            console.error('❌ Session error details:', JSON.stringify(err, null, 2));
+            console.error('❌ Session error stack:', err.stack);
+            reject(err);
+            return;
+          }
+          console.log('✅ Session saved successfully');
+          resolve();
+        });
       });
+      
+      // Verify session was saved by checking if it exists in store
+      if (sessionStore && req.sessionID) {
+        try {
+          sessionStore.get(req.sessionID, (err, session) => {
+            if (err) {
+              console.warn('⚠️  Could not verify session in store:', err.message);
+            } else if (session) {
+              console.log('✅ Session verified in PostgreSQL store');
+            } else {
+              console.warn('⚠️  Session not found in store after save');
+            }
+          });
+        } catch (verifyErr) {
+          console.warn('⚠️  Error verifying session:', verifyErr.message);
+        }
+      }
+      
+      console.log('✅ Session cookie will be set with:', {
+        secure: sessionConfig.cookie.secure,
+        httpOnly: sessionConfig.cookie.httpOnly,
+        sameSite: sessionConfig.cookie.sameSite,
+        maxAge: sessionConfig.cookie.maxAge,
+        path: sessionConfig.cookie.path
+      });
+      
+      // Set response headers to ensure cookie is sent
+      res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
+      
+      // Successful authentication, redirect to home
+      // Use 302 redirect - the cookie should be set by express-session middleware
+      res.redirect(302, '/');
     } catch (error) {
       console.error('❌ Error in OAuth callback handler:', error);
       console.error('❌ Error stack:', error.stack);
@@ -141,6 +190,13 @@ app.get('/api/auth/me', (req, res) => {
   console.log('Auth check - Is authenticated:', req.isAuthenticated());
   console.log('Auth check - User exists:', !!req.user);
   console.log('Auth check - Session store:', sessionStore ? 'PostgreSQL' : 'Memory');
+  console.log('Auth check - Session cookie:', req.headers.cookie ? 'Present' : 'Missing');
+  
+  // Ensure session is loaded (important for serverless)
+  if (!req.session) {
+    console.error('❌ No session object found');
+    return res.json({ user: null });
+  }
   
   if (req.isAuthenticated() && req.user) {
     // Don't send sensitive info
@@ -153,23 +209,56 @@ app.get('/api/auth/me', (req, res) => {
       }
     });
   } else {
+    console.log('Auth check - User not authenticated');
     res.json({ user: null });
   }
 });
 
+// Test endpoint to verify cookie setting works
+app.get('/api/auth/test-cookie', (req, res) => {
+  // Set a test cookie
+  res.cookie('test-cookie', 'test-value', {
+    secure: sessionConfig.cookie.secure,
+    httpOnly: false, // Allow JS to read for testing
+    sameSite: sessionConfig.cookie.sameSite,
+    maxAge: 60000, // 1 minute
+    path: '/'
+  });
+  res.json({ 
+    message: 'Test cookie set',
+    checkCookies: 'Open DevTools → Application → Cookies to verify test-cookie exists'
+  });
+});
+
 // Diagnostic endpoint to check session configuration
 app.get('/api/auth/debug', (req, res) => {
+  const databaseUrl = process.env.DATABASE_URL || process.env.SUPABASE_DB_URL;
+  const cookieHeader = req.headers.cookie || '';
+  const hasSessionCookie = cookieHeader.includes('connect.sid');
+  
   res.json({
     hasSessionStore: !!sessionStore,
     sessionStoreType: sessionStore ? 'PostgreSQL' : 'Memory',
-    hasDatabaseUrl: !!(process.env.DATABASE_URL || process.env.SUPABASE_DB_URL),
+    hasDatabaseUrl: !!databaseUrl,
+    databaseUrlFormat: databaseUrl ? (databaseUrl.startsWith('postgresql://') || databaseUrl.startsWith('postgres://') ? 'Valid' : 'Invalid') : 'Not set',
     hasSessionSecret: !!process.env.SESSION_SECRET,
+    sessionSecretLength: process.env.SESSION_SECRET ? process.env.SESSION_SECRET.length : 0,
     isSecureCookie: sessionConfig.cookie.secure,
+    cookieSameSite: sessionConfig.cookie.sameSite,
+    cookieHttpOnly: sessionConfig.cookie.httpOnly,
+    cookieMaxAge: sessionConfig.cookie.maxAge,
     sessionId: req.sessionID,
+    hasSession: !!req.session,
+    sessionKeys: req.session ? Object.keys(req.session) : [],
     isAuthenticated: req.isAuthenticated(),
     hasUser: !!req.user,
+    userId: req.user ? req.user.id : null,
+    hasCookie: !!req.headers.cookie,
+    hasSessionCookie: hasSessionCookie,
+    cookieHeader: cookieHeader ? 'Present (hidden for security)' : 'Missing',
     vercelEnv: process.env.VERCEL === '1',
-    nodeEnv: process.env.NODE_ENV
+    nodeEnv: process.env.NODE_ENV,
+    timestamp: new Date().toISOString()
   });
 });
 
@@ -206,6 +295,18 @@ app.get('/login.html', (req, res) => {
       'Content-Type': 'text/html'
     }
   });
+});
+
+// Serve favicon
+app.get('/favicon.ico', (req, res) => {
+  // Return a simple SVG favicon
+  const svgFavicon = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100">
+    <rect width="100" height="100" fill="#667eea"/>
+    <text x="50" y="70" font-size="60" text-anchor="middle" fill="white" font-family="Arial, sans-serif" font-weight="bold">QR</text>
+  </svg>`;
+  res.setHeader('Content-Type', 'image/svg+xml');
+  res.setHeader('Cache-Control', 'public, max-age=31536000');
+  res.send(svgFavicon);
 });
 
 // Static file serving (after routes) - fallback for other static files
