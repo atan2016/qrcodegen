@@ -27,23 +27,74 @@ let currentUser = null;
 // Check authentication and load user info
 async function checkAuth() {
   try {
+    // Prevent infinite redirect loops
+    const redirectCount = parseInt(sessionStorage.getItem('loginRedirectCount') || '0');
+    if (redirectCount > 2) {
+      console.error('Too many redirects detected. Stopping redirect loop.');
+      sessionStorage.removeItem('loginRedirectCount');
+      document.body.innerHTML = `
+        <div style="padding: 40px; text-align: center; max-width: 600px; margin: 50px auto;">
+          <h1 style="color: #c62828;">Authentication Error</h1>
+          <p style="margin: 20px 0; line-height: 1.6;">
+            Too many redirects detected. This usually means sessions are not persisting properly.
+          </p>
+          <p style="margin: 20px 0; line-height: 1.6; color: #666;">
+            <strong>Possible causes:</strong><br>
+            • DATABASE_URL environment variable is not set in Vercel<br>
+            • Session cookies are not being set/read properly<br>
+            • Browser cookies are blocked
+          </p>
+          <div style="margin: 30px 0;">
+            <button onclick="sessionStorage.clear(); location.href='/login.html'" style="padding: 10px 20px; margin: 5px; background: #667eea; color: white; border: none; border-radius: 5px; cursor: pointer;">
+              Clear & Try Again
+            </button>
+            <button onclick="location.reload()" style="padding: 10px 20px; margin: 5px; background: #666; color: white; border: none; border-radius: 5px; cursor: pointer;">
+              Reload Page
+            </button>
+          </div>
+        </div>
+      `;
+      return false;
+    }
+
     const response = await fetch('/api/auth/me', {
       credentials: 'include'
     });
+    
+    if (!response.ok) {
+      console.error('Auth check failed with status:', response.status);
+      const currentCount = parseInt(sessionStorage.getItem('loginRedirectCount') || '0');
+      sessionStorage.setItem('loginRedirectCount', (currentCount + 1).toString());
+      // Use replace to avoid adding to history
+      window.location.replace('/login.html');
+      return false;
+    }
+    
     const data = await response.json();
     
-    if (data.user) {
+    if (data && data.user) {
+      // Successfully authenticated, clear redirect counter
+      sessionStorage.removeItem('loginRedirectCount');
       currentUser = data.user;
       displayUserInfo(data.user);
       return true;
     } else {
       // Not authenticated, redirect to login
-      window.location.href = '/login.html';
+      console.log('User not authenticated, redirecting to login');
+      const currentCount = parseInt(sessionStorage.getItem('loginRedirectCount') || '0');
+      sessionStorage.setItem('loginRedirectCount', (currentCount + 1).toString());
+      // Use replace to avoid adding to history
+      window.location.replace('/login.html');
       return false;
     }
   } catch (error) {
     console.error('Error checking auth:', error);
-    window.location.href = '/login.html';
+    // Only redirect on network errors after a brief delay (might be transient)
+    setTimeout(() => {
+      const currentCount = parseInt(sessionStorage.getItem('loginRedirectCount') || '0');
+      sessionStorage.setItem('loginRedirectCount', (currentCount + 1).toString());
+      window.location.replace('/login.html');
+    }, 500);
     return false;
   }
 }

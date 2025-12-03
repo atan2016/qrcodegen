@@ -75,7 +75,9 @@ passport.use(new GoogleStrategy({
     });
     return done(null, user);
   } catch (error) {
-    console.error('Error in Google OAuth strategy:', error);
+    console.error('❌ Error in Google OAuth strategy:', error);
+    console.error('❌ Error stack:', error.stack);
+    console.error('❌ Error details:', JSON.stringify(error, Object.getOwnPropertyNames(error)));
     return done(error, null);
   }
 }));

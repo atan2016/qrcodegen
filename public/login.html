@@ -88,22 +88,59 @@
     </div>
 
     <script>
+        // Prevent infinite redirect loops
+        const redirectCount = parseInt(sessionStorage.getItem('loginRedirectCount') || '0');
+        if (redirectCount > 2) {
+            sessionStorage.removeItem('loginRedirectCount');
+            console.error('Too many redirects detected. Stopping redirect loop.');
+            document.getElementById('errorMessage').textContent = 'Authentication error detected. Please clear your browser cookies and try again. If the problem persists, check that DATABASE_URL is configured in your Vercel environment variables.';
+            document.getElementById('errorMessage').style.display = 'block';
+            // Don't try to redirect anymore
+            return;
+        }
+
         // Check for error in URL
         const urlParams = new URLSearchParams(window.location.search);
         const error = urlParams.get('error');
         if (error === 'auth_failed') {
             document.getElementById('errorMessage').textContent = 'Authentication failed. Please try again.';
             document.getElementById('errorMessage').style.display = 'block';
+            sessionStorage.removeItem('loginRedirectCount');
         }
 
-        // Check if already logged in
-        fetch('/api/auth/me')
-            .then(res => res.json())
-            .then(data => {
-                if (data.user) {
-                    window.location.href = '/';
-                }
-            });
+        // Check if already logged in (with delay to prevent race conditions)
+        // Only check once, don't redirect immediately to avoid loops
+        setTimeout(() => {
+            fetch('/api/auth/me', {
+                credentials: 'include' // Important: include cookies
+            })
+                .then(res => {
+                    if (!res.ok) {
+                        console.log('Auth check returned non-OK status:', res.status);
+                        sessionStorage.removeItem('loginRedirectCount');
+                        return { user: null };
+                    }
+                    return res.json();
+                })
+                .then(data => {
+                    if (data && data.user) {
+                        console.log('User is authenticated, redirecting to home');
+                        sessionStorage.removeItem('loginRedirectCount');
+                        // Small delay to ensure session is fully established
+                        setTimeout(() => {
+                            window.location.replace('/'); // Use replace instead of href to avoid history loop
+                        }, 200);
+                    } else {
+                        console.log('User is not authenticated, staying on login page');
+                        sessionStorage.removeItem('loginRedirectCount');
+                    }
+                })
+                .catch(err => {
+                    console.error('Error checking auth:', err);
+                    sessionStorage.removeItem('loginRedirectCount');
+                    // Don't redirect on error, let user see login page
+                });
+        }, 300);
     </script>
 </body>
 </html>

@@ -141,13 +141,21 @@ vercel
    - **Environment:** Select all
    - Click **Save**
 
-   **Variable 6: NODE_ENV**
+   **Variable 6: DATABASE_URL** ⚠️ **CRITICAL for session persistence**
+   - **Key:** `DATABASE_URL`
+   - **Value:** Your Supabase database connection string (from Supabase Settings → Database → Connection string)
+     - Format: `postgresql://postgres:[YOUR-PASSWORD]@db.[PROJECT-REF].supabase.co:5432/postgres`
+   - **Environment:** Select all
+   - Click **Save**
+   - **Note:** Without this, sessions will not persist on Vercel serverless functions and login will not work correctly.
+
+   **Variable 7: NODE_ENV**
    - **Key:** `NODE_ENV`
    - **Value:** `production`
    - **Environment:** Select all
    - Click **Save**
 
-   **Variable 7: GOOGLE_CALLBACK_URL**
+   **Variable 8: GOOGLE_CALLBACK_URL**
    - **Key:** `GOOGLE_CALLBACK_URL`
    - **Value:** `https://qrcodegen.creators-lab.org/auth/google/callback`
    - **Environment:** Select all
@@ -171,6 +179,10 @@ vercel env add SUPABASE_URL
 
 vercel env add SUPABASE_ANON_KEY
 # Paste your Supabase anon key
+
+vercel env add DATABASE_URL
+# Paste your Supabase database connection string (CRITICAL for session persistence)
+# Format: postgresql://postgres:[PASSWORD]@db.[PROJECT-REF].supabase.co:5432/postgres
 
 vercel env add NODE_ENV production
 

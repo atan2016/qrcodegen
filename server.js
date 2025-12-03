@@ -26,28 +26,44 @@ const PORT = process.env.PORT || 3000;
 let sessionStore;
 try {
   sessionStore = createSessionStore();
+  if (sessionStore) {
+    console.log('✅ Session store initialized successfully');
+  } else {
+    console.warn('⚠️  No session store created - will use memory store (sessions will not persist on Vercel)');
+  }
 } catch (error) {
   console.error('⚠️  Failed to create session store, using memory store:', error.message);
   sessionStore = undefined;
 }
 
+// Determine if we should use secure cookies
+const isSecure = process.env.VERCEL === '1' || process.env.NODE_ENV === 'production';
+
 const sessionConfig = {
   secret: process.env.SESSION_SECRET || 'qr-code-generator-secret-key-change-in-production',
   resave: false,
   saveUninitialized: false,
+  rolling: true, // Reset expiration on activity
+  name: 'connect.sid', // Default session cookie name
   cookie: {
-    secure: process.env.NODE_ENV === 'production', // HTTPS only in production
+    secure: isSecure, // HTTPS only on Vercel or production
     httpOnly: true,
     maxAge: 24 * 60 * 60 * 1000, // 24 hours
-    sameSite: 'lax' // Help with cross-site requests
+    sameSite: 'lax', // Help with cross-site requests
+    path: '/', // Ensure cookie is available for all paths
+    // Don't set domain - let browser use default
   }
 };
 
 // Use PostgreSQL store if available, otherwise use default (memory store)
 if (sessionStore) {
   sessionConfig.store = sessionStore;
+  console.log('✅ Using PostgreSQL session store for persistence');
 } else {
   console.warn('⚠️  Using memory store - sessions may not persist across serverless invocations');
+  if (process.env.VERCEL === '1') {
+    console.error('❌ CRITICAL: DATABASE_URL may not be set or session store creation failed. Sessions will not persist!');
+  }
 }
 
 app.use(session(sessionConfig));
@@ -71,16 +87,40 @@ app.get('/auth/google',
 );
 
 app.get('/auth/google/callback',
-  passport.authenticate('google', { failureRedirect: '/login.html?error=auth_failed' }),
+  passport.authenticate('google', { 
+    failureRedirect: '/login.html?error=auth_failed',
+    session: true
+  }),
   function(req, res) {
-    // Save session before redirecting (important for serverless)
-    req.session.save((err) => {
-      if (err) {
-        console.error('Error saving session:', err);
+    try {
+      // Passport already logged the user in and added to session
+      // Verify user is in session
+      if (!req.user) {
+        console.error('❌ User not found in session after authentication');
+        return res.redirect('/login.html?error=auth_failed');
       }
-      // Successful authentication, redirect to home
-      res.redirect('/');
-    });
+
+      console.log('✅ User authenticated:', req.user.email);
+      console.log('✅ Session ID:', req.sessionID);
+      console.log('✅ Is authenticated:', req.isAuthenticated());
+      
+      // Explicitly save the session before redirecting (critical for serverless)
+      req.session.save((err) => {
+        if (err) {
+          console.error('❌ Error saving session:', err);
+          console.error('❌ Session error details:', JSON.stringify(err, null, 2));
+          return res.redirect('/login.html?error=auth_failed');
+        }
+        
+        console.log('✅ Session saved successfully');
+        // Successful authentication, redirect to home
+        res.redirect('/');
+      });
+    } catch (error) {
+      console.error('❌ Error in OAuth callback handler:', error);
+      console.error('❌ Error stack:', error.stack);
+      res.status(500).send('Internal Server Error - Check logs for details');
+    }
   }
 );
 
@@ -96,7 +136,13 @@ app.get('/auth/logout', (req, res) => {
 
 // Get current user
 app.get('/api/auth/me', (req, res) => {
-  if (req.isAuthenticated()) {
+  // Debug logging
+  console.log('Auth check - Session ID:', req.sessionID);
+  console.log('Auth check - Is authenticated:', req.isAuthenticated());
+  console.log('Auth check - User exists:', !!req.user);
+  console.log('Auth check - Session store:', sessionStore ? 'PostgreSQL' : 'Memory');
+  
+  if (req.isAuthenticated() && req.user) {
     // Don't send sensitive info
     res.json({
       user: {
@@ -109,6 +155,22 @@ app.get('/api/auth/me', (req, res) => {
   } else {
     res.json({ user: null });
   }
+});
+
+// Diagnostic endpoint to check session configuration
+app.get('/api/auth/debug', (req, res) => {
+  res.json({
+    hasSessionStore: !!sessionStore,
+    sessionStoreType: sessionStore ? 'PostgreSQL' : 'Memory',
+    hasDatabaseUrl: !!(process.env.DATABASE_URL || process.env.SUPABASE_DB_URL),
+    hasSessionSecret: !!process.env.SESSION_SECRET,
+    isSecureCookie: sessionConfig.cookie.secure,
+    sessionId: req.sessionID,
+    isAuthenticated: req.isAuthenticated(),
+    hasUser: !!req.user,
+    vercelEnv: process.env.VERCEL === '1',
+    nodeEnv: process.env.NODE_ENV
+  });
 });
 
 // Serve static files explicitly (needed for Vercel serverless)
