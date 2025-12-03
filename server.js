@@ -151,19 +151,32 @@ app.get('/auth/google/callback',
         }
       }
       
-      console.log('✅ Session cookie will be set with:', {
+      // CRITICAL FIX: Explicitly set the session cookie before redirecting
+      // express-session should do this automatically, but on Vercel serverless we need to be explicit
+      const cookieOptions = {
         secure: sessionConfig.cookie.secure,
         httpOnly: sessionConfig.cookie.httpOnly,
         sameSite: sessionConfig.cookie.sameSite,
         maxAge: sessionConfig.cookie.maxAge,
         path: sessionConfig.cookie.path
+      };
+      
+      // Set the cookie explicitly using the session ID
+      res.cookie(sessionConfig.name, req.sessionID, cookieOptions);
+      
+      console.log('✅ Session cookie explicitly set:', {
+        name: sessionConfig.name,
+        sessionId: req.sessionID,
+        secure: cookieOptions.secure,
+        httpOnly: cookieOptions.httpOnly,
+        sameSite: cookieOptions.sameSite
       });
       
       // Set response headers to ensure cookie is sent
       res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
       
       // Successful authentication, redirect to home
-      // Use 302 redirect - the cookie should be set by express-session middleware
+      // The cookie is now explicitly set before redirect
       res.redirect(302, '/');
     } catch (error) {
       console.error('❌ Error in OAuth callback handler:', error);
