@@ -322,6 +322,14 @@ app.get('/favicon.ico', (req, res) => {
   res.send(svgFavicon);
 });
 
+// Handle extension requests for site icons (1Password, etc.)
+// Some extensions try to fetch domain.png - return 204 No Content to suppress 404 errors
+app.get(/.*\.png$/, (req, res) => {
+  // Return 204 No Content to satisfy extension requests without serving an image
+  // This prevents 404 errors in console from browser extensions
+  res.status(204).end();
+});
+
 // Static file serving (after routes) - fallback for other static files
 app.use(express.static(path.join(__dirname, 'public')));
 
