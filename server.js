@@ -23,7 +23,13 @@ const PORT = process.env.PORT || 3000;
 
 // Session configuration
 // Use PostgreSQL session store if DATABASE_URL is available, otherwise fallback to memory store
-const sessionStore = createSessionStore();
+let sessionStore;
+try {
+  sessionStore = createSessionStore();
+} catch (error) {
+  console.error('⚠️  Failed to create session store, using memory store:', error.message);
+  sessionStore = undefined;
+}
 
 const sessionConfig = {
   secret: process.env.SESSION_SECRET || 'qr-code-generator-secret-key-change-in-production',
@@ -32,13 +38,16 @@ const sessionConfig = {
   cookie: {
     secure: process.env.NODE_ENV === 'production', // HTTPS only in production
     httpOnly: true,
-    maxAge: 24 * 60 * 60 * 1000 // 24 hours
+    maxAge: 24 * 60 * 60 * 1000, // 24 hours
+    sameSite: 'lax' // Help with cross-site requests
   }
 };
 
 // Use PostgreSQL store if available, otherwise use default (memory store)
 if (sessionStore) {
   sessionConfig.store = sessionStore;
+} else {
+  console.warn('⚠️  Using memory store - sessions may not persist across serverless invocations');
 }
 
 app.use(session(sessionConfig));
